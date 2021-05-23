@@ -1,0 +1,112 @@
+     1                                  ; haribote-ipl
+     2                                  ; TAB=4
+     3                                  
+     4                                  CYLS	EQU		10				; 声明CYLS=10
+     5                                  
+     6                                  		ORG		0x7c00			; 指明程序装载地址
+     7                                  
+     8                                  ; 标准FAT12格式软盘专用的代码 Stand FAT12 format floppy code
+     9                                  
+    10 00000000 EB4E                    		JMP		entry
+    11 00000002 90                      		DB		0x90
+    12 00000003 48415249424F5445        		DB		"HARIBOTE"		; 启动扇区名称（8字节）
+    13 0000000B 0002                    		DW		512				; 每个扇区（sector）大小（必须512字节）
+    14 0000000D 01                      		DB		1				; 簇（cluster）大小（必须为1个扇区）
+    15 0000000E 0100                    		DW		1				; FAT起始位置（一般为第一个扇区）
+    16 00000010 02                      		DB		2				; FAT个数（必须为2）
+    17 00000011 E000                    		DW		224				; 根目录大小（一般为224项）
+    18 00000013 400B                    		DW		2880			; 该磁盘大小（必须为2880扇区1440*1024/512）
+    19 00000015 F0                      		DB		0xf0			; 磁盘类型（必须为0xf0）
+    20 00000016 0900                    		DW		9				; FAT的长度（必??9扇区）
+    21 00000018 1200                    		DW		18				; 一个磁道（track）有几个扇区（必须为18）
+    22 0000001A 0200                    		DW		2				; 磁头数（必??2）
+    23 0000001C 00000000                		DD		0				; 不使用分区，必须是0
+    24 00000020 400B0000                		DD		2880			; 重写一次磁盘大小
+    25 00000024 000029                  		DB		0,0,0x29		; 意义不明（固定）
+    26 00000027 FFFFFFFF                		DD		0xffffffff		; （可能是）卷标号码
+    27 0000002B 48415249424F54454F-     		DB		"HARIBOTEOS "	; 磁盘的名称（必须为11字?，不足填空格）
+    27 00000034 5320               
+    28 00000036 4641543132202020        		DB		"FAT12   "		; 磁盘格式名称（必??8字?，不足填空格）
+    29 0000003E <res 00000012>          		RESB	18				; 先空出18字节
+    29          ******************       warning: uninitialized space declared in .text section: zeroing [-w+other]
+    30                                  
+    31                                  ; 程序主体
+    32                                  
+    33                                  entry:
+    34 00000050 B80000                  		MOV		AX,0			; 初始化寄存器
+    35 00000053 8ED0                    		MOV		SS,AX
+    36 00000055 BC007C                  		MOV		SP,0x7c00
+    37 00000058 8ED8                    		MOV		DS,AX
+    38                                  
+    39                                  ; 读取磁盘
+    40                                  
+    41 0000005A B82008                  		MOV		AX,0x0820
+    42 0000005D 8EC0                    		MOV		ES,AX
+    43 0000005F B500                    		MOV		CH,0			; 柱面0
+    44 00000061 B600                    		MOV		DH,0			; 磁头0
+    45 00000063 B102                    		MOV		CL,2			; 扇区2
+    46                                  
+    47                                  readloop:
+    48 00000065 BE0000                  		MOV		SI,0			; 记录失败次数寄存器
+    49                                  
+    50                                  retry:
+    51 00000068 B402                    		MOV		AH,0x02			; AH=0x02 : 读入磁盘
+    52 0000006A B001                    		MOV		AL,1			; 1个扇区
+    53 0000006C BB0000                  		MOV		BX,0
+    54 0000006F B200                    		MOV		DL,0x00			; A驱动器
+    55 00000071 CD13                    		INT		0x13			; 调用磁盘BIOS
+    56 00000073 7310                    		JNC		next			; 没出错则跳转到fin
+    57 00000075 83C601                  		ADD		SI,1			; 往SI加1
+    58 00000078 83FE05                  		CMP		SI,5			; 比较SI与5
+    59 0000007B 7332                    		JAE		error			; SI >= 5 跳转到error
+    60 0000007D B400                    		MOV		AH,0x00
+    61 0000007F B200                    		MOV		DL,0x00			; A驱动器
+    62 00000081 CD13                    		INT		0x13			; 重置驱动器
+    63 00000083 EBE3                    		JMP		retry
+    64                                  next:
+    65 00000085 8CC0                    		MOV		AX,ES			; 把内存地址后移0x200（512/16十六进制转换）
+    66 00000087 83C020                  		ADD		AX,0x0020
+    67 0000008A 8EC0                    		MOV		ES,AX			; ADD ES,0x020因为没有ADD ES，只能通过AX进行
+    68 0000008C 80C101                  		ADD		CL,1			; 往CL里面加1
+    69 0000008F 80F912                  		CMP		CL,18			; 比较CL与18
+    70 00000092 76D1                    		JBE		readloop		; CL <= 18 跳转到readloop
+    71 00000094 B101                    		MOV		CL,1
+    72 00000096 80C601                  		ADD		DH,1
+    73 00000099 80FE02                  		CMP		DH,2
+    74 0000009C 72C7                    		JB		readloop		; DH < 2 跳转到readloop
+    75 0000009E B600                    		MOV		DH,0
+    76 000000A0 80C501                  		ADD		CH,1
+    77 000000A3 80FD0A                  		CMP		CH,CYLS
+    78 000000A6 72BD                    		JB		readloop		; CH < CYLS 跳转到readloop
+    79                                  
+    80                                  ; 读取完毕，跳转到haribote.sys执行！
+    81 000000A8 882EF00F                		MOV		[0x0ff0],CH		; IPLがどこまで読んだのかをメモ
+    82 000000AC E9(00C2)                		JMP		0xc200
+    83                                  
+    84                                  error:
+    85 000000AF BE[C700]                		MOV		SI,msg
+    86                                  
+    87                                  putloop:
+    88 000000B2 8A04                    		MOV		AL,[SI]
+    89 000000B4 83C601                  		ADD		SI,1			; 给SI加1
+    90 000000B7 3C00                    		CMP		AL,0
+    91 000000B9 7409                    		JE		fin
+    92 000000BB B40E                    		MOV		AH,0x0e			; 显示一个文字
+    93 000000BD BB0F00                  		MOV		BX,15			; 指定字符颜色
+    94 000000C0 CD10                    		INT		0x10			; 调用显卡BIOS
+    95 000000C2 EBEE                    		JMP		putloop
+    96                                  
+    97                                  fin:
+    98 000000C4 F4                      		HLT						; 让CPU停止，等待指令
+    99 000000C5 EBFD                    		JMP		fin				; 无限循环
+   100                                  
+   101                                  msg:
+   102 000000C7 0A0A                    		DB		0x0a, 0x0a		; 换行两次
+   103 000000C9 6C6F6164206572726F-     		DB		"load error"
+   103 000000D2 72                 
+   104 000000D3 0A                      		DB		0x0a			; 换行
+   105 000000D4 00                      		DB		0
+   106                                  
+   107 000000D5 00<rept>                		TIMES   0x1fe-($-$$) DB 0        ;填写0x00,直到0x001fe
+   108                                  
+   109 000001FE 55AA                    		DB		0x55, 0xaa
